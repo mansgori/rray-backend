@@ -9,3 +9,7 @@ load_dotenv(ROOT_DIR / ".env")
 
 MONGODB_URL = os.getenv("MONGODB_URL","mongodb://localhost:27017")
 DATABASE_NAME=os.getenv("DATABASE_NAME","rayy_db")
+
+JWT_ALGORITHM = os.environ.get('JWT_ALGORITHM', 'HS256')
+JWT_SECRET=os.getenv("JWT_SECRET","abcde")
+JWT_EXPIRY_HOURS=os.getenv("JWT_EXPIRY_HOURS",24)
