@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from backend.core.database import connect_to_mongo, close_mongo_connection
 from backend.modules.auth.router import auth_router
+from backend.modules.users.router import user_router
 
 
 @asynccontextmanager
@@ -22,3 +23,4 @@ async def root():
 
 
 app.include_router(auth_router, prefix="/api")
+app.include_router(user_router, prefix="/api")

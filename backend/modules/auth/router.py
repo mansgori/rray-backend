@@ -1,21 +1,12 @@
-from fastapi import  APIRouter, Depends
+from fastapi import  APIRouter, Depends, Request, Response
 from backend.modules.auth.schemas import TokenResponse
-from backend.modules.users.schemas import UserLogin
+from backend.modules.users.schemas import UserLogin, UserResponse
 from backend.modules.users.models import UserRegister
 from backend.modules.auth.service import AuthService
-from backend.modules.auth.repository import AuthRepository
-from backend.modules.wallet.repository import WalletRepository
+from backend.modules.auth.dependecies import get_auth_service
+from backend.modules.auth.utility import  get_current_user
 
 auth_router = APIRouter(prefix="/auth", tags=["Auth"])
-
-def get_auth_service(
-    auth_repo: AuthRepository = Depends(),
-    wallet_repo: WalletRepository = Depends(),
-) -> AuthService:
-    return AuthService(
-        auth_repo=auth_repo,
-        wallet_repo=wallet_repo,
-    )
 
 @auth_router.post("/register", response_model=TokenResponse)
 async def register(
@@ -46,8 +37,26 @@ async def check_partner_exists(
     return await service.check_partner_exists(data)
 
 @auth_router.post("/verify-otp", response_model=TokenResponse)
-async def verifyotp(
+async def verify_otp(
     data: dict,
     service: AuthService = Depends(get_auth_service)
     ):
-    return await service.verifyotp(data)
+    return await service.verify_otp(data)
+
+#Here google authentication added is pending
+
+@auth_router.post("/logout")
+async def logout(
+    request: Request, 
+    response: Response,
+    service: AuthService = Depends(get_auth_service)
+    ):
+        return await service.logout(request, response)
+
+@auth_router.post("/me", response_model=UserResponse)
+async def get_me(
+     current_user: dict = Depends(get_current_user),
+     service: AuthService = Depends(get_auth_service)
+    ):
+     return await service.get_me(current_user)
+

@@ -62,3 +62,6 @@ class AuthRepository:
             {"identifier": identifier},
             {"$set": {"verified": True}}
         )
+    
+    async def delete_session(self, session_token: str):
+        return await mongodb.db.oauth_session.delete_one({"session_token":session_token})

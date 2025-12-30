@@ -209,4 +209,31 @@ class AuthService:
         is_new_user_flag = otp_record.get("is_new_user", False)
         
         return TokenResponse(access_token=token, user=user_resp, is_new_user=is_new_user_flag)
+    
+    async def logout(self, request, response):
+        session_token = request.cookies.get("session_token")
+
+        if session_token:
+            self.auth_repo.delete_session(session_token)
+        
+        response.delete_cookie(key="session_token", path="/")
+
+        return {"message":"Logged out Successfully"}
+    
+    async def get_me(self, current_user):
+            # LOG: What role is in current_user from JWT
+        print(f"🔍 /auth/me - current_user role from JWT: {current_user.get('role')}")
+
+        db_user= await self.auth_repo.find_user_by_id(current_user["id"])
+        print(f"🔍 /auth/me - DB role for user: {db_user.get('role') if db_user else 'NOT FOUND'}")
+
+        return UserResponse(
+            id=current_user["id"],
+            role=UserRole(current_user["role"]),
+            name=current_user["name"],
+            email=current_user["email"],
+            phone=current_user.get("phone"),
+            child_profiles=[ChildProfile(**cp) for cp in current_user.get("child_profiles", [])],
+            onboarding_complete=current_user.get("onboarding_complete", False)
+        )
 
