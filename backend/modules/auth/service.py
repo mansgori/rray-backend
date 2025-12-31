@@ -1,6 +1,8 @@
 from fastapi import APIRouter, HTTPException, Depends
 import uuid
+import logging
 from datetime import datetime, timezone
+from typing import Dict, Any
 from backend.modules.auth.repository import AuthRepository
 from backend.modules.wallet.repository import WalletRepository
 from backend.modules.auth.schemas import TokenResponse
@@ -236,4 +238,88 @@ class AuthService:
             child_profiles=[ChildProfile(**cp) for cp in current_user.get("child_profiles", [])],
             onboarding_complete=current_user.get("onboarding_complete", False)
         )
+    
+    async def get_child_profile(self, current_user:Dict):
+        try:
+            if current_user["role"] not in ["customer", "partner_owner", "partner_staff"]:
+                raise HTTPException(status_code=403, detail="Access denied")
+        
+            user = await self.auth_repo.get_child_profile(current_user["id"])
+        
+            return user.get("child_profiles", []) if user else []
+        except HTTPException:
+            raise  # Re-raise HTTP exceptions
+        except Exception as e:
+            logging.error(f"Error in get_children: {e}")
+            return []
+
+    async def add_child_profile(self, child:ChildProfile, current_user=Dict):
+        try:
+            if current_user["role"] not in ["customer", "partner_owner", "partner_staff"]:
+                raise HTTPException(status_code=403, detail="Access denied")
+                
+            await self.auth_repo.users.update_one(
+            {"id": current_user["id"]},
+            {"$push": {"child_profiles": child.model_dump()}}
+            )
+    
+            return {"message": "Child added successfully"}
+        except HTTPException:
+            raise  # Re-raise HTTP exceptions
+        except Exception as e:
+            logging.error(f"Error in add_children: {e}")
+            return []
+        
+    async def edit_child_profile(self, child_index:int, child:ChildProfile, current_user:Dict):
+        try:
+            if current_user["role"] not in ["customer", "partner_owner", "partner_staff"]:
+                raise HTTPException(status_code=403, detail="Access denied")
+            
+            id = current_user["id"]
+
+            user = await self.auth_repo.find_user_by_id(id)
+
+            if not user or "child_profiles" not in user or len(user["child_profiles"]) <= child_index:
+                raise HTTPException(status_code=404, detail="Child profile not found")
+            
+            user["child_profiles"][child_index] = child.model_dump()
+
+            await self.auth_repo.add_child_profile(
+                {"id": current_user["id"]},
+                {"$push": {"child_profiles": user["child_profiles"]}}
+            )
+
+            return {"message": "Child profile updated successfully"}
+        except HTTPException:
+            raise  # Re-raise HTTP exceptions
+        except Exception as e:
+            logging.error(f"Error in add_children: {e}")
+            return []
+    
+    async def delete_child_profile(self, child_index: int, current_user: Dict):
+        try:
+            if current_user["role"] not in ["customer", "partner_owner", "partner_staff"]:
+                raise HTTPException(status_code=403, detail="Access denied")
+            
+            id = current_user["id"]
+
+            user = await self.auth_repo.find_user_by_id(id)
+
+            if not user or "child_profiles" not in user or len(user["child_profiles"]) <= child_index:
+                raise HTTPException(status_code=404, detail="Child profile not found")
+            
+                # Remove the child profile at the specified index
+            user["child_profiles"].pop(child_index)
+
+            await self.auth_repo.add_child_profile(
+                {"id": current_user["id"]},
+                {"$push": {"child_profiles": user["child_profiles"]}}
+            )
+            
+            return {"message": "Child profile deleted successfully"}
+        except HTTPException:
+            raise  # Re-raise HTTP exceptions
+        except Exception as e:
+            logging.error(f"Error in add_children: {e}")
+            return []
 

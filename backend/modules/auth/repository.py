@@ -65,3 +65,12 @@ class AuthRepository:
     
     async def delete_session(self, session_token: str):
         return await mongodb.db.oauth_session.delete_one({"session_token":session_token})
+    
+    async def get_child_profile(self, id:str):
+        return await mongodb.db.users.find_one({"id": id}, {"_id": 0, "child_profiles": 1})
+    
+    async def add_child_profile(self, id:str, child):
+        return await mongodb.db.users.update_one(
+        {"id": id},
+        {"$push": {"child_profiles": child.model_dump()}}
+    )
