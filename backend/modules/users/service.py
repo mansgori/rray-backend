@@ -151,3 +151,52 @@ class UserService:
             logging.error(f"Error in add_children: {e}")
             return []
         
+    async def update_location(self, location: Dict[str, Any], current_user: Dict ):
+        try:
+            if current_user["role"] not in ["customer", "partner_owner", "partner_staff"]:
+                raise HTTPException(status_code=403, detail="Access denied")
+            # Prepare update data
+            update_data = {
+                "location": location,
+                "updated_at": datetime.now(timezone.utc)
+            }
+
+            await self.user_repo.update_user_by_id(
+                {"id": current_user["id"]},
+                {"$set": update_data}
+            )
+            id = current_user["id"]
+
+            updated_user = await self.auth_repo.find_user_by_id(id)
+            
+            return {"message": "Location updated successfully", "user": updated_user}
+        except HTTPException:
+            raise  # Re-raise HTTP exceptions
+        except Exception as e:
+            logging.error(f"Error in update_location: {e}")
+            return []
+    
+    async def complete_onboarding(self, current_user: Dict ):
+        try:
+            if current_user["role"] not in ["customer", "partner_owner", "partner_staff"]:
+                raise HTTPException(status_code=403, detail="Access denied")
+            # Prepare update data
+            update_data = {
+                "onboardingCompleted": True,
+                "updated_at": datetime.now(timezone.utc)
+            }
+
+            await self.user_repo.update_user_by_id(
+                {"id": current_user["id"]},
+                {"$set": update_data}
+            )
+            id = current_user["id"]
+
+            updated_user = await self.auth_repo.find_user_by_id(id)
+            
+            return {"message": "Onboarding completed successfully", "user": updated_user}
+        except HTTPException:
+            raise  # Re-raise HTTP exceptions
+        except Exception as e:
+            logging.error(f"Error in complete_onboarding: {e}")
+            return []

@@ -87,13 +87,15 @@ async def edit_child_profile(
      ):
      return await service.edit_child_profile(child_index=child_index, child=child, current_user=current_user)
 
-@auth_router.delete("/edit-child/{child_index}")
+@auth_router.delete("/delete-child/{child_index}")
 async def delete_child_profile(
      child_index: int, 
      current_user: Dict = Depends(get_current_user),
      service: AuthService = Depends(get_auth_service)
      ):
      return await service.delete_child_profile(child_index=child_index, current_user=current_user)
+
+
 
 
 

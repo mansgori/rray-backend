@@ -40,3 +40,16 @@ async def update_customer_profile(
      current_user: Dict = Depends(get_current_user),
      user_service:UserService=Depends(get_user_service)):
      return await user_service.update_customer_profile(profile_data=profile_data, current_user=current_user)
+
+@user_router.post("/update-location")
+async def update_user_location(
+     location: Dict[str, Any], 
+     current_user: Dict = Depends(get_current_user),
+     user_service:UserService=Depends(get_user_service)):
+        return await user_service.update_location(location=location, current_user=current_user)
+
+@user_router.post("/auth/complete-onboarding")
+async def complete_onboarding(
+     current_user: Dict = Depends(get_current_user),
+     user_service:UserService=Depends(get_user_service)):
+        return await user_service.complete_onboarding(current_user=current_user)
