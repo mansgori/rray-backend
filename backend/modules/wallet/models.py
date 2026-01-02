@@ -21,5 +21,14 @@ class CreditTransaction(BaseModel):
     description:Optional[str] = None
     metadata:Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
+    default_factory=lambda: datetime.now(timezone.utc)
     )
+
+class CreditLedger(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    delta: int
+    reason: str  # purchase, booking, refund, expiry, bonus
+    ref_booking_id: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

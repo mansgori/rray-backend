@@ -17,8 +17,11 @@ class AuthRepository:
     async def find_user(self, email: str) -> dict:
         return await mongodb.db.users.find_one({"email":email})
     
-    async def find_user_by_id(self, id: str) -> dict:
-        return await mongodb.db.users.find_one({"id":id}, {"_id": 0})
+    async def find_user_by_id(self, id: str, filter = None) -> dict:
+        projection = {"_id": 0}
+        if filter:
+                projection.update(filter)
+        return await mongodb.db.users.find_one({"id":id}, projection)
     
     async def find_partner(self, identifier: str) -> dict:
         return await mongodb.db.users.find_one({

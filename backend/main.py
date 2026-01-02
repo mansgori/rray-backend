@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from backend.core.database import connect_to_mongo, close_mongo_connection
 from backend.modules.auth.router import auth_router
 from backend.modules.users.router import user_router
+from backend.modules.listing.router import list_router, category_router
 from backend.core.email_service.email_instance import email_service
 
 
@@ -29,3 +30,5 @@ async def root():
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(user_router, prefix="/api")
+app.include_router(list_router, prefix="/api")
+app.include_router(category_router, prefix="/api")

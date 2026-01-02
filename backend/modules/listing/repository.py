@@ -11,8 +11,33 @@ class ListingRepository:
         return await mongodb.db.categories.find_one(id, projection).to_list(100)
         
     
-    async def get_listing_by_id(self, listing_id):
-        return await mongodb.db.listings.find_onefind_one({"id": listing_id}, {"_id": 0})
+    async def update_listing(self, listing_id, batch_id=None, data=None, new_data=None, delete_option=None, inc_data=None):
+        query={"id": listing_id}
+        update_query = {}
+        if batch_id:
+            query["batches.id"] = batch_id
+        
+        if data:
+            update_query["$set"] =  data
+        if new_data:
+            update_query["$push"] =  new_data
+        if delete_option:
+            update_query["$pull"] =  delete_option
+        if inc_data:
+            update_query["$inc"] = inc_data
+
+
+        if not update_query:
+            return False
+        
+        return await mongodb.db.listing.update_one(query, update_query)
+    
+    async def get_listing_by_id(self, listing_id, data_filter=None):
+        projection = {"_id": 0}
+        if data_filter:
+            projection.update(data_filter)
+        return await mongodb.db.listings.find_one({"id": listing_id}, projection)
+    
     
     async def search_pipeline(
         self, city, age, category,
@@ -77,3 +102,4 @@ class ListingRepository:
         })
 
         return await mongodb.db.listings.aggregate(pipeline).to_list(None)
+    

@@ -4,11 +4,13 @@ from typing import Optional
 from datetime import datetime, timezone, timedelta
 import os
 import logging
+import uuid
 from backend.modules.auth.repository import AuthRepository
 from backend.modules.wallet.repository import WalletRepository
 from backend.modules.users.repository import UserRepository
 from backend.modules.listing.repository import ListingRepository
 from backend.modules.partner.repository import PartnerRepository
+from backend.modules.sessions.repository import SessionRepository
 from backend.core.email_service.email_instance import email_service
 from backend.modules.listing.utility import calculate_distance_km, format_distance
 
@@ -20,13 +22,15 @@ class ListingService:
                  wallet_repo:WalletRepository,
                  user_repo:UserRepository,
                  listing_repo:ListingRepository,
-                 partner_repo:PartnerRepository
+                 partner_repo:PartnerRepository,
+                 session_repo:SessionRepository
                  ):
         self.auth_repo = auth_repo
         self.wallet_repo = wallet_repo
         self.user_repo = user_repo
         self.listing_repo = listing_repo
         self.partner_repo = partner_repo
+        self.session_repo = session_repo
     
     async def get_categories(self):
         categories = await self.listing_repo.get_categories()
@@ -257,4 +261,433 @@ class ListingService:
             logging.error(f"Error in get_listing_sessions for listing {listing_id}: {e}")
             return {"sessions": []}
 
+    async def get_listing_plans(self, listing_id):
+        try:
+            listing = await self.listing_repo.get_listing_by_id(listing_id)
+
+            if not listing:
+                raise HTTPException(status_code=404, detail="Listing not found")
+
+            base_price = listing.get("base_price_inr", 1000)
+            trial_price = listing.get("trial_price_inr")
+            trial_available = listing.get("trial_available", False)
+
+            date = datetime.now(timezone.utc).date().isoformat()
+
+            total_sessions = await self.session_repo.get_document_count(listing_id, date)
+
+            # Define pricing plans with discounts
+            plans = []
+
+            # Trial plan (if available)
+            if trial_available and trial_price:
+                plans.append({
+                    "id": "trial",
+                    "name": "Trial Class",
+                    "description": "Try before you commit",
+                    "sessions_count": 1,
+                    "price_inr": trial_price,
+                    "price_per_session": trial_price,
+                    "discount_percent": int(((base_price - trial_price) / base_price) * 100),
+                    "savings_inr": base_price - trial_price,
+                    "validity_days": 30,
+                    "is_trial": True,
+                    "badge": "Most Popular"
+                })
+
+            # Single session
+            plans.append({
+                "id": "single",
+                "name": "Single Session",
+                "description": "Pay as you go",
+                "sessions_count": 1,
+                "price_inr": base_price,
+                "price_per_session": base_price,
+                "discount_percent": 0,
+                "savings_inr": 0,
+                "validity_days": 30,
+                "is_trial": False
+            })
+
+                # Weekly plan (4 sessions, 10% off) - Always show
+            weekly_price_per_session = int(base_price * 0.9)
+            weekly_total = weekly_price_per_session * 4
+
+            plans.append({
+                "id": "weekly",
+                "name": "Weekly Plan",
+                "description": "4 sessions per month",
+                "sessions_count": 4,
+                "price_inr": weekly_total,
+                "price_per_session": weekly_price_per_session,
+                "discount_percent": 10,
+                "savings_inr": (base_price * 4) - weekly_total,
+                "validity_days": 60,
+                "is_trial": False,
+                "badge": "Save 10%",
+                "available": total_sessions >= 4
+            })
+
+            # Monthly plan (12 sessions, 25% off) - Always show
+            monthly_price_per_session = int(base_price * 0.75)
+            monthly_total = monthly_price_per_session * 12
+            plans.append({
+                "id": "monthly",
+                "name": "Monthly Plan",
+                "description": "12 sessions over 3 months",
+                "sessions_count": 12,
+                "price_inr": monthly_total,
+                "price_per_session": monthly_price_per_session,
+                "discount_percent": 25,
+                "savings_inr": (base_price * 12) - monthly_total,
+                "validity_days": 90,
+                "is_trial": False,
+                "badge": "Best Value",
+                "available": total_sessions >= 12
+            })
+
+            # Quarterly plan (36 sessions, 35% off)
+            if total_sessions >= 36:
+                quarterly_price_per_session = int(base_price * 0.65)
+                quarterly_total = quarterly_price_per_session * 36
+                plans.append({
+                    "id": "quarterly",
+                    "name": "Quarterly Plan",
+                    "description": "36 sessions over 6 months",
+                    "sessions_count": 36,
+                    "price_inr": quarterly_total,
+                    "price_per_session": quarterly_price_per_session,
+                    "discount_percent": 35,
+                    "savings_inr": (base_price * 36) - quarterly_total,
+                    "validity_days": 180,
+                    "is_trial": False,
+                    "badge": "Maximum Savings"
+                })
+            return {
+                "plans": plans,
+                "total_available_sessions": total_sessions,
+                "base_price_inr": base_price
+            }
+        except HTTPException:
+            raise  # Re-raise HTTP exceptions
+        except Exception as e:
+            logging.error(f"Error in add_children: {e}")
+            return []
     
+    async def update_listing(self, listing_id, data, current_user):
+        try:
+            if current_user["role"] not in ["partner_owner", "partner_staff", "admin"]:
+                raise HTTPException(status_code=403, detail="Only partners can update listings")
+            
+            listing = await self.listing_repo.get_listing_by_id(listing_id)
+            if not listing:
+                raise HTTPException(status_code=404, detail="Listing not found")
+            
+            # Verify ownership
+            if current_user["role"] != "admin":
+                partner = await self.partner_repo.get_partner_by_id(current_user["id"])
+                if not partner or listing["partner_id"] != partner["id"]:
+                    raise HTTPException(status_code=403, detail="Unauthorized")
+            # Update fields
+            data["updated_at"] = datetime.now(timezone.utc)
+
+            await self.listing_repo.update_listing(listing_id, data)
+
+        except HTTPException:
+            raise  # Re-raise HTTP exceptions
+        except Exception as e:
+            logging.error(f"Error in add_children: {e}")
+            return []
+    
+    async def add_plan_option(self, listing_id, plan, current_user):
+        try:
+            if current_user["role"] not in ["partner_owner", "partner_staff", "admin"]:
+                raise HTTPException(status_code=403, detail="Only partners can manage plans")
+            
+            listing = await self.listing_repo.get_listing_by_id(listing_id)
+            if not listing:
+                raise HTTPException(status_code=404, detail="Listing not found")
+            
+            # Create plan with ID
+            plan_dict = plan.model_dump()
+            plan_dict["id"] = str(uuid.uuid4())
+            plan_dict["is_active"] = True
+
+            new_data = {
+                "plan_options": plan_dict
+            }
+            date = datetime.now(timezone.utc)
+            
+            await self.listing_repo.update_listing(listing_id, new_data, date)
+
+            return {"message": "Plan option added", "plan_id": plan_dict["id"]}
+
+        except HTTPException:
+            raise  # Re-raise HTTP exceptions
+        except Exception as e:
+            logging.error(f"Error in add_children: {e}")
+            return []
+    
+    async def update_plan_option(self, listing_id, plan, plan_data, current_user):
+        try:
+            if current_user["role"] not in ["partner_owner", "partner_staff", "admin"]:
+                raise HTTPException(status_code=403, detail="Only partners can manage plans")
+            
+            listing = await self.listing_repo.get_listing_by_id(listing_id)
+            if not listing:
+                raise HTTPException(status_code=404, detail="Listing not found")
+            
+            data=plan_data
+            date = datetime.now(timezone.utc)
+            
+            result = await self.listing_repo.update_listing(listing_id, data, date)
+
+            if result.modified_count == 0:
+                raise HTTPException(status_code=404, detail="Plan not found")
+    
+            return {"message": "Plan updated successfully"}
+
+        except HTTPException:
+            raise  # Re-raise HTTP exceptions
+        except Exception as e:
+            logging.error(f"Error in add_children: {e}")
+            return []
+
+    async def delete_plan_option(self, listing_id, plan_id, current_user):
+        try:
+            if current_user["role"] not in ["partner_owner", "partner_staff", "admin"]:
+                raise HTTPException(status_code=403, detail="Only partners can manage plans")
+            
+            listing = await self.listing_repo.get_listing_by_id(listing_id)
+            if not listing:
+                raise HTTPException(status_code=404, detail="Listing not found")
+            
+            delete_option={"plan_options": {"id":plan_id}}
+            date = datetime.now(timezone.utc)
+            
+            result = await self.listing_repo.update_listing(listing_id, delete_option, date)
+
+            if result.modified_count == 0:
+                raise HTTPException(status_code=404, detail="Plan not found")
+    
+            return {"message": "Plan deleted successfully"}
+
+        except HTTPException:
+            raise  # Re-raise HTTP exceptions
+        except Exception as e:
+            logging.error(f"Error in add_children: {e}")
+            return []
+    
+    async def add_batch(self, listing_id, batch, current_user):
+        try:
+            if current_user["role"] not in ["partner_owner", "partner_staff", "admin"]:
+                raise HTTPException(status_code=403, detail="Only partners can manage batches")
+            
+            listing = await self.listing_repo.get_listing_by_id(listing_id)
+            if not listing:
+                raise HTTPException(status_code=404, detail="Listing not found")
+            
+            batch_dict = batch.model_dump()
+            batch_dict["id"] = str(uuid.uuid4())
+            batch_dict["enrolled_count"] = 0
+            batch_dict["is_active"] = True
+            date = datetime.now(timezone.utc)
+
+            new_data = {
+                "batches": batch_dict
+            }
+            
+            result = await self.listing_repo.update_listing(listing_id, new_data, date)
+
+            if result.modified_count == 0:
+                raise HTTPException(status_code=404, detail="Batch not found")
+    
+            return {"message": "Batch added", "batch_id": batch_dict["id"]}
+
+        except HTTPException:
+            raise  # Re-raise HTTP exceptions
+        except Exception as e:
+            logging.error(f"Error in add_children: {e}")
+            return []
+        
+    async def update_batch(self, listing_id, batch_id, batch_data, current_user):
+        try:
+            if current_user["role"] not in ["partner_owner", "partner_staff", "admin"]:
+                raise HTTPException(status_code=403, detail="Only partners can manage plans")
+            
+            listing = await self.listing_repo.get_listing_by_id(listing_id)
+            if not listing:
+                raise HTTPException(status_code=404, detail="Listing not found")
+            
+            data=batch_data
+            date = datetime.now(timezone.utc)
+            
+            result = await self.listing_repo.update_listing(listing_id, batch_id, data, date)
+
+            if result.modified_count == 0:
+                raise HTTPException(status_code=404, detail="Batch not found")
+    
+            return {"message": "Batch updated successfully"}
+
+        except HTTPException:
+            raise  # Re-raise HTTP exceptions
+        except Exception as e:
+            logging.error(f"Error in add_children: {e}")
+            return []
+        
+
+    async def delete_batch(self, listing_id, batch_id, current_user):
+        try:
+            if current_user["role"] not in ["partner_owner", "partner_staff", "admin"]:
+                raise HTTPException(status_code=403, detail="Only partners can manage plans")
+            
+            listing = await self.listing_repo.get_listing_by_id(listing_id)
+            if not listing:
+                raise HTTPException(status_code=404, detail="Listing not found")
+            
+            delete_option={"batches": {"id":batch_id}}
+            date = datetime.now(timezone.utc)
+            
+            result = await self.listing_repo.update_listing(listing_id, delete_option, date)
+
+            if result.modified_count == 0:
+                raise HTTPException(status_code=404, detail="Batch not found")
+    
+            return {"message": "Batch updated successfully"}
+
+        except HTTPException:
+            raise  # Re-raise HTTP exceptions
+        except Exception as e:
+            logging.error(f"Error in add_children: {e}")
+            return []
+
+    async def check_batch_availability(self, listing_id, batch_id):
+        try:
+            data_filter = {"batches": 1}
+            listing = await self.listing_repo.get_listing_by_id(listing_id, data_filter)
+            if not listing:
+                raise HTTPException(status_code=404, detail="Batch not found")
+            
+            batch = next((b for b in listing.get("batches", []) if b["id"] == batch_id), None)
+            if not batch:
+                raise HTTPException(status_code=404, detail="Batch not found")
+    
+            available_seats = batch["capacity"] - batch.get("enrolled_count", 0)
+            
+            return {
+                "batch_id": batch_id,
+                "capacity": batch["capacity"],
+                "enrolled": batch.get("enrolled_count", 0),
+                "available": available_seats,
+                "is_full": available_seats <= 0
+            }
+
+        except HTTPException:
+            raise  # Re-raise HTTP exceptions
+        except Exception as e:
+            logging.error(f"Error in add_children: {e}")
+            return []
+    
+    async def generate_batch_sessions(self, listing_id, batch_id, weeks, current_user):
+        try:
+            if current_user["role"] not in ["partner_owner", "partner_staff", "admin"]:
+                raise HTTPException(status_code=403, detail="Only partners can generate sessions")
+            
+            listing = await self.listing_repo.get_listing_by_id(listing_id)
+            
+            if not listing:
+                raise HTTPException(status_code=404, detail="Listing not found")
+            
+            batch = next((b for b in listing.get("batches", []) if b["id"] == batch_id), None)
+            if not batch:
+                raise HTTPException(status_code=404, detail="Batch not found")
+            
+            sessions_created = []
+            # Parse start date
+            start_date = datetime.fromisoformat(batch["start_date"]).date()
+            end_date_limit = start_date + timedelta(weeks=weeks)
+           
+            # Day name to weekday number mapping
+            day_map = {
+                "monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
+                "friday": 4, "saturday": 5, "sunday": 6
+            }
+
+                # Get weekday numbers for this batch
+            batch_weekdays = [day_map[day.lower()] for day in batch["days_of_week"]]
+
+            current_date = start_date
+
+            while current_date < end_date_limit:
+                if current_date.weekday() in batch_weekdays:
+                    # Parse time
+                    time_parts = batch["time"].split(":")
+                    hour = int(time_parts[0])
+                    minute = int(time_parts[1]) if len(time_parts) > 1 else 0
+                    
+                    # Create datetime
+                    session_datetime = datetime.combine(
+                        current_date,
+                        datetime.min.time().replace(hour=hour, minute=minute)
+                    ).replace(tzinfo=timezone.utc)
+                    
+                    end_datetime = session_datetime + timedelta(minutes=batch["duration_minutes"])
+                    
+                    # Create session document
+                    session_doc = {
+                        "id": str(uuid.uuid4()),
+                        "listing_id": listing_id,
+                        "batch_id": batch_id,
+                        "start_at": session_datetime,
+                        "end_at": end_datetime,
+                        "date": current_date.isoformat(),
+                        "time": batch["time"],
+                        "duration_minutes": batch["duration_minutes"],
+                        "seats_total": batch["capacity"],
+                        "seats_booked": 0,
+                        "status": "scheduled",
+                        "is_rescheduled": False,
+                        "original_date": None
+                    }
+
+                    await self.session_repo.add_session(session_doc)
+                    sessions_created.append(session_doc["id"])
+                current_date += timedelta(days=1)
+            return {
+                    "message": f"Generated {len(sessions_created)} sessions",
+                    "sessions_count": len(sessions_created),
+                    "batch_id": batch_id
+                }
+
+        except HTTPException:
+            raise  # Re-raise HTTP exceptions
+        except Exception as e:
+            logging.error(f"Error in add_children: {e}")
+            return []
+        
+    async def get_batch_sessions(self, listing_id, batch_id, from_date, to_date):
+            try:
+                query = {
+                    "listing_id": listing_id,
+                    "batch_id": batch_id,
+                    "status": "scheduled"
+                }
+                
+                if from_date:
+                    query["date"] = {"$gte": from_date}
+                
+                if to_date:
+                    if "date" in query:
+                        query["date"]["$lte"] = to_date
+                    else:
+                        query["date"] = {"$lte": to_date}
+                
+                sessions = await self.session_repo.get_session(query)
+                
+                return {"sessions": sessions, "count": len(sessions)}
+            except Exception as e:
+                logging.error(f"Error in get_batch_sessions for listing {listing_id}, batch {batch_id}: {e}")
+                return {"sessions": [], "count": 0}
+
+
+
