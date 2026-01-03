@@ -10,6 +10,12 @@ class SessionRepository:
                     {"$inc": {"seats_booked": 1}}
                 )
     
+    async def update_remove_session(self, session_id):
+        return await mongodb.db.sessions.update_one(
+                    {"id": session_id},
+                    {"$inc": {"seats_booked": -1}}
+                )
+    
     async def atomic_seat_reservation(self, session_id, seats_total):
         return await mongodb.db.update_one(
                 {
@@ -37,3 +43,23 @@ class SessionRepository:
             "status": "scheduled",
             "date": {"$gte": date}
             })
+    
+    async def selected_sessions(self, session_ids, listing_id, sessions_to_book):
+        return await mongodb.db.sessions.find({
+        "id": {"$in": session_ids},
+        "listing_id": listing_id,
+        "status": "scheduled"
+        }, {"_id": 0}).to_list(sessions_to_book)
+    
+    async def delete_session(self, session_id):
+        return await mongodb.db.sessions.delete_one({"id":session_id})
+    
+    async def add_notification(self, notification_data):
+        return await mongodb.db.notification.insert_one(notification_data)
+    
+    async def scheduled_session_with_available_seats(self, id):
+        return await mongodb.db.sessions.find({
+            "listing_id": id,
+            "status": "scheduled",
+            "$expr": {"$lt": ["$seats_booked", "$seats_total"]}  # Has available seats
+        }, {"_id": 0}).sort("start_at", 1).to_list(100)

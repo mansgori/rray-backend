@@ -29,3 +29,12 @@ class BookingCreateV2(BaseModel):
     child_profile_age: int
     payment_method: PaymentMethod
     use_credits: bool = False
+
+class PlanBookingCreate(BaseModel):
+    listing_id: str
+    plan_id: str  # "single", "weekly", "monthly", "quarterly", "trial"
+    session_ids: List[str]  # Specific sessions to book
+    child_profile_name: str
+    child_profile_age: int
+    payment_method: PaymentMethod
+    use_credits: bool = False

@@ -5,7 +5,9 @@ from enum import Enum
 import uuid
 from backend.modules.booking.schemas import PaymentMethod
 
-
+class RescheduleRequest(BaseModel):
+    new_session_id: str
+    
 class BookingStatus(str, Enum):
     confirmed = "confirmed"
     pending = "pending"
